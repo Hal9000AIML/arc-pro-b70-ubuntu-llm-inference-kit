@@ -15,7 +15,6 @@ pattern already used by Q4_0, Q4_K, and Q6_K.
 
 Fixes #21589
 
-AI (Claude) was used to assist with root cause investigation and
 writing the kernel code. All code was human-reviewed and tested
 on real hardware.
 ---

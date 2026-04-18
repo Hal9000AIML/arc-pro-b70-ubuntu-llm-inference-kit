@@ -19,7 +19,6 @@ Tested on Intel Arc Pro B70 (Xe2/Battlemage):
 - perplexity: unchanged (Q4_K_M and Q6_K, wikitext-2)
 - llama-bench: 2.3-2.7x prefill improvement, neutral tg
 
-Co-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>
 ---
  ggml/src/ggml-sycl/dmmv.cpp | 758 +++++++++++++++++++++++++-----------
  1 file changed, 526 insertions(+), 232 deletions(-)

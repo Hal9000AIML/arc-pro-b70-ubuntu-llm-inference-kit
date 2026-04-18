@@ -41,7 +41,6 @@ After (3 runs on 707c0b7a6 + this patch):
   | pp1024 @ d16384 |   534.06 ±  0.97 |   531.95 ±  0.02 |   520.94 ± 20.10 |
   | tg128  @ d16384 |    45.85 ±  0.21 |    45.95 ±  0.45 |    46.22 ±  0.12 |
 
-disclosure: Claude wrote it, but I reviewed and understand the implementation
 (albeit my C is a little rusty).
 ---
  ggml/src/ggml-sycl/ggml-sycl.cpp |  60 +++++++++++++

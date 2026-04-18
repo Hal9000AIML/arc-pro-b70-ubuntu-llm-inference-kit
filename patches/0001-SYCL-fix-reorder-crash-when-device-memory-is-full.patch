@@ -21,7 +21,6 @@ DMMV/MMVQ kernels to read the original AoS data as if it were SoA,
 producing garbage output or NaN results.
 
 Tested on Intel Arc Pro B70 (32GB) with Q8_0, Q4_K_M models. Coding was
-AI-assisted (Claude), reviewed and tested on hardware by a human.
 
 Fixes #20478
 ---
