@@ -1,6 +1,18 @@
-# b70-llamacpp-kit
+# arc-pro-b70-ubuntu-llm-inference-kit
 
-Intel Arc Pro B70 (BMG G31, Xe2, 32GB) tuning kit for `llama.cpp`. Reproduces the build + runtime configuration that drives a 4× B70 inference box running 5 concurrent llama-server tiers.
+**Ubuntu Server tuning kit that makes Intel Arc Pro B70 cards actually fast for local LLM inference.**
+
+Out-of-the-box `llama.cpp` on Arc Pro B70 (BMG G31, Xe2, 32GB) leaves 2–7× on the floor depending on the model and backend. This kit is the exact build + runtime configuration used by a 4× B70 Ubuntu Server inference box running 5 concurrent llama-server tiers (chat, code, fast, agentic, reasoning) at production speeds.
+
+You get:
+- Patched llama.cpp binaries (SYCL and Vulkan) with the 11 commits that matter on Xe2
+- Mesa 26+ (required for Vulkan BF16 + coopmat on BMG)
+- Per-model start scripts with tuned flags and env vars
+- Systemd units so tiers survive reboots
+- Clear rules for when to pick SYCL vs Vulkan per model
+- Reference benchmarks you can regress against
+
+If you have B70s sitting in a box running at Vulkan defaults, this will roughly double to triple your tok/s. If you're fighting MoE model crashes or SYCL slot-init SEGVs, this has the workarounds.
 
 ## What this kit is for
 
