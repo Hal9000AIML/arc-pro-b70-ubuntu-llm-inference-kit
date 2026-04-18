@@ -1,0 +1,125 @@
+From 512987ae0602b1581f9a22e5e1a5235c42a2ad0f Mon Sep 17 00:00:00 2001
+From: PMZFX <georgiopapairo@gmail.com>
+Date: Wed, 8 Apr 2026 12:10:33 -0400
+Subject: [PATCH] [SYCL] Fix Q8_0 reorder: add missing dequantize path for GEMM
+
+The Q8_0 reorder optimization (#21527) was missing a reorder-aware
+dequantizer for the GEMM code path used during prompt processing.
+After token generation reordered Q8_0 weights (via DMMV/MMVQ), the
+next prompt processing pass would read them with the standard
+dequantizer, producing garbage output.
+
+Add dequantize_block_q8_0_reorder() and wire it into both
+ggml_get_to_fp16_sycl() and ggml_get_to_fp32_sycl(), matching the
+pattern already used by Q4_0, Q4_K, and Q6_K.
+
+Fixes #21589
+
+AI (Claude) was used to assist with root cause investigation and
+writing the kernel code. All code was human-reviewed and tested
+on real hardware.
+---
+ ggml/src/ggml-sycl/convert.cpp    | 33 +++++++++++++++++++++++++++++--
+ ggml/src/ggml-sycl/dequantize.hpp | 28 ++++++++++++++++++++++++++
+ 2 files changed, 59 insertions(+), 2 deletions(-)
+
+diff --git a/ggml/src/ggml-sycl/convert.cpp b/ggml/src/ggml-sycl/convert.cpp
+index d7f60cbc9..4d036b7d5 100644
+--- a/ggml/src/ggml-sycl/convert.cpp
++++ b/ggml/src/ggml-sycl/convert.cpp
+@@ -151,6 +151,25 @@ static void dequantize_row_q4_0_sycl_reorder(const void *vx, dst_t *y, const int
+ 
+ }
+ 
++template <typename dst_t>
++static void dequantize_row_q8_0_sycl_reorder(const void *vx, dst_t *y, const int64_t k,
++                                     dpct::queue_ptr stream) {
++
++    dpct::has_capability_or_fail(stream->get_device(),
++                                    {sycl::aspect::fp16});
++
++    int constexpr WARP_K = WARP_SIZE * QK8_0;
++    const int n_warp = (k + WARP_K - 1) / WARP_K;
++    GGML_ASSERT(k % QK8_0 == 0);
++    stream->parallel_for(sycl::nd_range<3>(sycl::range<3>(1, 1, n_warp) *
++        sycl::range<3>(1, 1, WARP_SIZE),
++        sycl::range<3>(1, 1, WARP_SIZE)),
++        [=](sycl::nd_item<3> item_ct1) [[sycl::reqd_sub_group_size(WARP_SIZE)]]{
++            dequantize_block_q8_0_reorder(vx, y, k, item_ct1);
++        });
++
++}
++
+ template <typename dst_t>
+ static void dequantize_row_q4_1_sycl(const void *vx, dst_t *y, const int64_t k,
+                                      dpct::queue_ptr stream) {
+@@ -614,7 +633,12 @@ to_fp16_sycl_t ggml_get_to_fp16_sycl(ggml_type type, ggml_tensor * dst) {
+         case GGML_TYPE_Q5_1:
+             return dequantize_block_sycl<QK5_1, QR5_1, dequantize_q5_1>;
+         case GGML_TYPE_Q8_0:
+-            return dequantize_block_sycl<QK8_0, QR8_0, dequantize_q8_0>;
++            if (dst->src[0]->extra &&
++                ((ggml_tensor_extra_gpu *) dst->src[0]->extra)->optimized_feature.reorder) {
++                return dequantize_row_q8_0_sycl_reorder;
++            } else {
++                return dequantize_block_sycl<QK8_0, QR8_0, dequantize_q8_0>;
++            }
+         case GGML_TYPE_Q2_K:
+             return dequantize_row_q2_K_sycl;
+         case GGML_TYPE_Q3_K:
+@@ -683,7 +707,12 @@ to_fp32_sycl_t ggml_get_to_fp32_sycl(ggml_type type, ggml_tensor *dst) {
+         case GGML_TYPE_Q5_1:
+             return dequantize_block_sycl<QK5_1, QR5_1, dequantize_q5_1>;
+         case GGML_TYPE_Q8_0:
+-            return dequantize_block_sycl<QK8_0, QR8_0, dequantize_q8_0>;
++            if (dst->src[0]->extra &&
++                ((ggml_tensor_extra_gpu*)dst->src[0]->extra)->optimized_feature.reorder) {
++                return dequantize_row_q8_0_sycl_reorder;
++            } else {
++                return dequantize_block_sycl<QK8_0, QR8_0, dequantize_q8_0>;
++            }
+         case GGML_TYPE_Q2_K:
+             return dequantize_row_q2_K_sycl;
+         case GGML_TYPE_Q3_K:
+diff --git a/ggml/src/ggml-sycl/dequantize.hpp b/ggml/src/ggml-sycl/dequantize.hpp
+index f992db33b..e764b5087 100644
+--- a/ggml/src/ggml-sycl/dequantize.hpp
++++ b/ggml/src/ggml-sycl/dequantize.hpp
+@@ -238,6 +238,34 @@ static void dequantize_block_q4_0_reorder(const void * __restrict__ vx, dst_t *
+ 
+ }
+ 
++// Dequantize Q8_0 from reorder layout: [all qs (k bytes)][all d values]
++// Each thread handles one block of QK8_0 elements.
++template<typename dst_t>
++static void dequantize_block_q8_0_reorder(const void * __restrict__ vx, dst_t * __restrict__ yy, int64_t k,
++                                  const sycl::nd_item<3> &item_ct1) {
++
++    const int64_t i = item_ct1.get_group(2);
++    const int64_t tid = item_ct1.get_local_id(2);
++    const int lane_ib = i * WARP_SIZE + tid;
++
++    if (lane_ib >= k / QK8_0) {
++        return;
++    }
++
++    dst_t * y_ptr = yy + lane_ib * QK8_0;
++
++    auto qs = (const int8_t*)vx + lane_ib * QK8_0;
++    auto s_ptr = (const sycl::half*)((const uint8_t*)vx + k) + lane_ib;
++
++    const float d = float(*s_ptr);
++
++#pragma unroll
++    for (int l = 0; l < QK8_0; ++l) {
++        y_ptr[l] = d * qs[l];
++    }
++
++}
++
+ template<typename dst_t>
+ static void dequantize_block_q4_1(const void * __restrict__ vx, dst_t * __restrict__ yy, int64_t nb32,
+                                   const sycl::nd_item<3> &item_ct1) {
+-- 
+2.43.0
+

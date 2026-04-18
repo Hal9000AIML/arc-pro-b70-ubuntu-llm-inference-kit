@@ -1,0 +1,22 @@
+[Unit]
+Description=llama.cpp server on port %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/start_%i.sh
+Restart=on-failure
+RestartSec=5
+# SYCL JIT cache can survive restarts but sometimes poisons — clear on failure
+ExecStartPre=-/bin/rm -f /tmp/llama-%i.log
+
+# Generous timeouts: SYCL first-run JIT can take 5-15 minutes
+TimeoutStartSec=1800
+
+# Keep the GPU/oneAPI state
+Environment=HOME=%h
+Environment=XDG_CACHE_HOME=%h/.cache
+
+[Install]
+WantedBy=default.target

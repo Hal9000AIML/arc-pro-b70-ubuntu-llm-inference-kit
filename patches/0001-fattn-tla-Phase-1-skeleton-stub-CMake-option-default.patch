@@ -1,0 +1,72 @@
+From 64af6820bea3bd0baa65223dfdd2ea108db7cbe6 Mon Sep 17 00:00:00 2001
+From: brendan <brendan.houck@gmail.com>
+Date: Sat, 18 Apr 2026 01:06:47 +0000
+Subject: [PATCH] fattn-tla: Phase 1 skeleton (stub + CMake option, default
+ OFF)
+
+---
+ ggml/src/ggml-sycl/CMakeLists.txt | 13 +++++++++++++
+ ggml/src/ggml-sycl/fattn-tla.cpp  |  9 +++++++++
+ ggml/src/ggml-sycl/fattn-tla.hpp  |  8 ++++++++
+ 3 files changed, 30 insertions(+)
+ create mode 100644 ggml/src/ggml-sycl/fattn-tla.cpp
+ create mode 100644 ggml/src/ggml-sycl/fattn-tla.hpp
+
+diff --git a/ggml/src/ggml-sycl/CMakeLists.txt b/ggml/src/ggml-sycl/CMakeLists.txt
+index 8e589fa23..c63c204f9 100644
+--- a/ggml/src/ggml-sycl/CMakeLists.txt
++++ b/ggml/src/ggml-sycl/CMakeLists.txt
+@@ -159,8 +159,21 @@ if (GGML_SYCL_HOST_MEM_FALLBACK)
+     target_compile_definitions(ggml-sycl PRIVATE GGML_SYCL_HOST_MEM_FALLBACK)
+ endif()
+ 
++
+ if (GGML_SYCL_DEVICE_ARCH)
+     target_compile_options(ggml-sycl PRIVATE -Xsycl-target-backend --offload-arch=${GGML_SYCL_DEVICE_ARCH})
+     target_link_options(ggml-sycl PRIVATE -Xsycl-target-backend --offload-arch=${GGML_SYCL_DEVICE_ARCH})
+ endif()
+ 
++
++# ── Experimental sycl-tla Flash Attention graft ──
++# When ON, compiles fattn-tla.cpp with real kernel launches into sycl-tla's
++# prebuilt FMHAKernel (BMG G31). OFF leaves the stub's #ifdef-guarded code out
++# of the binary so the baseline SYCL build is unaffected.
++option(GGML_SYCL_USE_TLA "Experimental sycl-tla Flash Attention graft (Intel BMG)" OFF)
++if (GGML_SYCL_USE_TLA)
++    message(STATUS "ggml-sycl: sycl-tla FA graft ENABLED")
++    target_compile_definitions(ggml-sycl PRIVATE GGML_SYCL_USE_TLA)
++    target_include_directories(ggml-sycl PRIVATE /opt/sycl-tla/include)
++    target_link_directories(ggml-sycl PRIVATE /opt/sycl-tla/build/lib)
++endif()
+diff --git a/ggml/src/ggml-sycl/fattn-tla.cpp b/ggml/src/ggml-sycl/fattn-tla.cpp
+new file mode 100644
+index 000000000..73d1f9d42
+--- /dev/null
++++ b/ggml/src/ggml-sycl/fattn-tla.cpp
+@@ -0,0 +1,9 @@
++#ifdef GGML_SYCL_USE_TLA
++#include "fattn-tla.hpp"
++#include <cstdio>
++void ggml_sycl_flash_attn_ext_tla(ggml_backend_sycl_context& ctx, struct ggml_tensor* dst) {
++    (void)ctx; (void)dst;
++    fprintf(stderr, "[fattn-tla] stub called\n");
++}
++#endif
++
+diff --git a/ggml/src/ggml-sycl/fattn-tla.hpp b/ggml/src/ggml-sycl/fattn-tla.hpp
+new file mode 100644
+index 000000000..98a06d343
+--- /dev/null
++++ b/ggml/src/ggml-sycl/fattn-tla.hpp
+@@ -0,0 +1,8 @@
++#pragma once
++#include "ggml.h"
++#include "ggml-backend.h"
++#ifdef GGML_SYCL_USE_TLA
++struct ggml_backend_sycl_context;
++void ggml_sycl_flash_attn_ext_tla(ggml_backend_sycl_context& ctx, struct ggml_tensor* dst);
++#endif
++
+-- 
+2.43.0
+

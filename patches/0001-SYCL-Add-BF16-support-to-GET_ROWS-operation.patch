@@ -1,0 +1,49 @@
+From 0f842b5b14acf433f43d1d34262a072ab4a330fb Mon Sep 17 00:00:00 2001
+From: Devedse <davydavidse@gmail.com>
+Date: Fri, 3 Apr 2026 22:25:41 +0200
+Subject: [PATCH] [SYCL] Add BF16 support to GET_ROWS operation
+
+Add GGML_TYPE_BF16 to the SYCL backend's GET_ROWS operation, both in
+supports_op and in the kernel dispatch. This fixes a performance
+regression where models using BF16 embedding tensors (e.g., Gemma4's
+per_layer_token_embd.weight) fall back to CPU for the GET_ROWS op,
+causing a full GPU-to-CPU tensor transfer every token.
+
+The fix reuses the existing get_rows_sycl_float template with
+sycl::ext::oneapi::bfloat16, matching the pattern already used for
+sycl::half (F16) and float (F32).
+---
+ ggml/src/ggml-sycl/getrows.cpp   | 4 ++++
+ ggml/src/ggml-sycl/ggml-sycl.cpp | 1 +
+ 2 files changed, 5 insertions(+)
+
+diff --git a/ggml/src/ggml-sycl/getrows.cpp b/ggml/src/ggml-sycl/getrows.cpp
+index 03f8dd907..ca4574547 100644
+--- a/ggml/src/ggml-sycl/getrows.cpp
++++ b/ggml/src/ggml-sycl/getrows.cpp
+@@ -183,6 +183,10 @@ void ggml_sycl_op_get_rows(ggml_backend_sycl_context & ctx, ggml_tensor * dst) {
+             get_rows_sycl_float(ctx, dst->src[0], dst->src[1], dst, (const sycl::half *)dst->src[0]->data,
+                                 src1_i32, (float *)dst->data, ctx.stream());
+             break;
++        case GGML_TYPE_BF16:
++            get_rows_sycl_float(ctx, dst->src[0], dst->src[1], dst, (const sycl::ext::oneapi::bfloat16 *)dst->src[0]->data,
++                                src1_i32, (float *)dst->data, ctx.stream());
++            break;
+         case GGML_TYPE_F32:
+             get_rows_sycl_float(ctx, dst->src[0], dst->src[1], dst, (const float *)dst->src[0]->data,
+             src1_i32, (float *)dst->data, ctx.stream());
+diff --git a/ggml/src/ggml-sycl/ggml-sycl.cpp b/ggml/src/ggml-sycl/ggml-sycl.cpp
+index eff7f1ae3..605703875 100644
+--- a/ggml/src/ggml-sycl/ggml-sycl.cpp
++++ b/ggml/src/ggml-sycl/ggml-sycl.cpp
+@@ -4814,6 +4814,7 @@ static bool ggml_backend_sycl_device_supports_op(ggml_backend_dev_t dev, const g
+             {
+                 switch (op->src[0]->type) {
+                     case GGML_TYPE_F16:
++                    case GGML_TYPE_BF16:
+                     case GGML_TYPE_F32:
+                     case GGML_TYPE_Q4_0:
+                     case GGML_TYPE_Q4_1:
+-- 
+2.43.0
+

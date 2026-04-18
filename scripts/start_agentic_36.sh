@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Qwen3.6-35B-A3B + Qwen3-0.6B draft — Vulkan0 speculative decoding on port 8003.
+# Prior SYCL spec measured 1.56-1.85x; applying same pattern on stable Vulkan.
+exec /opt/llama.cpp/llama-vulkan-build/bin/llama-server     --model /mnt/models/Qwen3.6-35B-A3B/Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf     --model-draft /mnt/models/Qwen3-0.6B-Q8_0.gguf     --device Vulkan0     --device-draft Vulkan0     -ngl 999 -ngld 999     --draft-max 16 --draft-min 1 --draft-p-min 0.5     -c 12288     --cache-type-k q8_0     --cache-type-v q8_0     --parallel 1     --batch-size 2048     --ubatch-size 512     --defrag-thold 0.1     --flash-attn on     --host 0.0.0.0 --port 8003     --alias Qwen3.6-35B-A3B     -t 1     --jinja     --reasoning off     --chat-template-kwargs '{"enable_thinking":false}'     --no-warmup     --log-file /tmp/llama-agentic.log
