@@ -175,4 +175,4 @@ docs/           build.md, tuning.md, backend-selection.md, benchmarks.md
 
 ## License
 
-MIT. The patches are derivative work of llama.cpp (MIT). Upstream authors credited in each `.patch` file via `git format-patch` headers.
+Public domain (The Unlicense). Use this for anything, commercial or not, no attribution required. The cherry-picks in `patches/` are derivative work of llama.cpp (MIT); upstream authors are preserved in each `.patch` file's `From:` header.
