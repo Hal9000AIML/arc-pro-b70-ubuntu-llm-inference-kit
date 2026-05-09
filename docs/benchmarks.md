@@ -99,3 +99,21 @@ The lesson: SYCL + SYCL on one card is catastrophic. SYCL + Vulkan on one card i
 Intel's [`llm-scaler`](https://github.com/intel/llm-scaler) added official **B70 support in `vllm-0.14.0-b8.2` (2026-04-22)**. This is the canonical vLLM XPU build path going forward — it replaces the older `intel/vllm:0.17.0-xpu` we use today. The persistent zero-gap MoE GEMM kernel (2 SYCL groups per Battlemage XeCore) is documented at 80%+ HW efficiency and reports **2.6× end-to-end on Qwen3-30B-A3B** vs the legacy XPU path. B70-specific perf numbers are not yet published; benchmark on actual B70 before claiming the same 2.6×.
 
 When we move the vLLM tier off `intel/vllm:0.17.0-xpu`, `llm-scaler` is the destination. It also enables MoE configurations we currently can't run — e.g., MiniMax M2.7 AutoRound INT4 with the unsigned u4 ESIMD decode path.
+
+## Negative result: llama.cpp master (b8824) on Qwen3.6-35B-A3B Q4_K_M
+
+2026-05-09. Tried pulling `llama-src-new` 85 commits forward to upstream master — picks up PR #22147 (Battlemage AOT via `spir64_gen` + MMQ subgroup annotations), #22152 (Q5_K reorder MMVQ), #22732 (FA allocation overhead reduction), #22291 (Arc770 Q4_0 mul_mat optimization). Built AOT for `bmg-g31` with our usual flags.
+
+Two build attempts:
+
+1. **First build, default cmake** — linked against MKL 2026.0 (only version `setvars.sh` exposes via `latest`). Binary segfaulted at startup deep in `libsycl.so.8.0.0`. Root cause: ABI mismatch — `icpx 2025.3.3` builds against `libsycl.so.8`, but `setvars.sh` sets `LD_LIBRARY_PATH` to point MKL/DNNL at 2026.0 which depends on `libsycl.so.9`. The 2026.0 compiler is partially installed (no `icpx`), so we can't currently match.
+2. **Second build with `MKLROOT=/opt/intel/oneapi/mkl/2025.3` and `GGML_SYCL_DNN=OFF`** (DNNL has only 2026.0 installed; could not pin to 2025.3) — binary launches cleanly. Same model, same env, same prompt, three runs:
+
+| Build | Run 1 | Run 2 | Run 3 | Avg tg |
+|---|---|---|---|---|
+| `pr21920-22035` (current production) | 45.83 | 45.81 | 44.71 | **45.5 tok/s** |
+| `master @ 1e5ad35` (DNN=OFF, MKL 2025.3) | 43.98 | 44.07 | 44.22 | **44.1 tok/s** |
+
+**~3% regression**, not improvement. The DNN=OFF likely costs some prefill perf, but more importantly: the upstream PRs that helped on Steve Seguin's bench (Q5_K reorder, BMG AOT spir64_gen, FA allocation) don't manifest as a Q4_K_M decode win on a single B70 with our Qwen3.6-35B-A3B workload. Build is preserved at `/opt/llama.cpp/llama-sycl-build-aot-may2026` for future re-validation once oneAPI 2026.0 compiler is fully installed and DNN can be re-enabled. Current production stays on `llama-sycl-build-aot-pr21920-22035`.
+
+**Lesson:** before pulling llama.cpp master into the B70 stack, install a complete oneAPI 2026.0 compiler so MKL+DNNL+SYCL versions match. Mixing 2025.3 compiler with 2026.0 libs breaks at runtime.
