@@ -194,6 +194,16 @@ Bench environment (2026-04-18):
 
 This measurement is reproducible — exact commands are in `docs/benchmarks.md`.
 
+## See also (other public B70 resources)
+
+These independently confirm the kit's findings or cover paths the kit doesn't:
+
+- **[`PMZFX/intel-arc-pro-b70-benchmarks`](https://github.com/PMZFX/intel-arc-pro-b70-benchmarks)** — third-party benchmark corpus. All runs pinned to llama.cpp `ec6f7a6a5c` (2026-04-21) with power telemetry; reproducible from a known commit. Reports **54.7 tg / 615 pp on a single B70** for Qwen3.6-35B-A3B UD-Q4_K_M and **43.4 tg on dual-B70** for Qwen3-Coder-Next-80B-A3B Q4_K_M. Useful regression target for our agentic and reasoning tiers.
+- **[`intel/llm-scaler`](https://github.com/intel/llm-scaler)** — Intel's official Dockerized vLLM XPU build. **B70 support landed in `vllm-0.14.0-b8.2` on 2026-04-22.** This is the canonical replacement for the `intel/vllm:0.17.0-xpu` image our 4× TP=4 path uses today. Their persistent zero-gap MoE GEMM kernel (2 SYCL groups per Battlemage XeCore, 80%+ HW efficiency) is documented at 2.6× end-to-end on Qwen3-30B-A3B vs the legacy XPU path on B60; B70 numbers are not yet published and need direct measurement.
+- **[`ipex-llm/ipex-llm`](https://github.com/ipex-llm/ipex-llm)** (community fork, *not* the archived `intel/ipex-llm`) — ships a Battlemage quickstart at `docs/mddocs/Quickstart/bmg_quickstart.md` and is still the canonical home for the llama.cpp portable zip and Ollama portable zip on Intel XPU. Useful for users who don't want to build from source.
+- **[`steveseguin/llm-optimizations`](https://github.com/steveseguin/llm-optimizations)** — Steve Seguin's experimental kernel-fusion lab. 79 patches and dense reproducibility notes targeting Qwen3.6-27B Q4_0 on 3-4× B70 (50.13 tg multi-card record). Our patches are upstream-mergeable; his are deeper experiments tied to a private `ggml-backend-meta.cpp` layer and don't apply directly to vanilla llama.cpp, but the negative-result writeups (small-F32 allreduce regression, oneCCL topology toggle, MiniMax `MUL_MAT_ID` mask path) are worth reading before retrying any of those directions.
+- **Upstream tracking issues** in `ggml-org/llama.cpp` worth subscribing to: [#21893](https://github.com/ggml-org/llama.cpp/issues/21893) (Xe2 weight corruption without `GGML_SYCL_DISABLE_OPT=1`), [#21517](https://github.com/ggml-org/llama.cpp/issues/21517) (Q8_0 ~4× slower than Q4_K_M on B70, root cause kernel not driver), and [Discussion #12570](https://github.com/ggml-org/llama.cpp/discussions/12570) (running Arc GPU status thread).
+
 ## What's NOT in this kit
 
 - Windows support. These patches and flags are Linux-only. Intel's Windows Arc stack is a different beast. If you're on Windows and need B70 inference, use the [Windows repo](https://github.com/Hal9000AIML/arc-pro-b70-inference-setup-windows) (vLLM via WSL2).

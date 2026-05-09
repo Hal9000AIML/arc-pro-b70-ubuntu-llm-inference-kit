@@ -82,3 +82,20 @@ For reference, these are the same tiers when they own their GPU:
 | Qwen3-Next-80B IQ3_XXS | SYCL | 22 | 21.2 | 4% |
 
 The lesson: SYCL + SYCL on one card is catastrophic. SYCL + Vulkan on one card is fine if the Vulkan one is small.
+
+## Third-party cross-validation
+
+[`PMZFX/intel-arc-pro-b70-benchmarks`](https://github.com/PMZFX/intel-arc-pro-b70-benchmarks) is an independent community corpus pinning all runs to llama.cpp commit `ec6f7a6a5c` (2026-04-21) with power telemetry, so their numbers are reproducible from a known base. Single-B70 results for models in our agentic and reasoning tiers:
+
+| Model | Quant | Backend | Their tg tok/s | Our tier (4-card box) |
+|---|---|---|---|---|
+| Qwen3.6-35B-A3B | UD-Q4_K_M | SYCL, single B70 | 54.7 (615 pp) | agentic (Vulkan + spec) — 25.0 tg |
+| Qwen3-Coder-Next-80B-A3B | Q4_K_M | SYCL, dual B70 | 43.4 | reasoning (single SYCL) — 21.2 |
+
+54.7 tg on Qwen3.6-35B-A3B is the closest published comparable to our `:8003` tier and is the right regression target if we move that model to Q4_K_M on SYCL. Worth running our build against the same prompt to confirm we're within 5% of their number — if not, something in our env or build is leaving perf on the table.
+
+## Future vLLM tier: intel/llm-scaler v0.14.0-b8.2
+
+Intel's [`llm-scaler`](https://github.com/intel/llm-scaler) added official **B70 support in `vllm-0.14.0-b8.2` (2026-04-22)**. This is the canonical vLLM XPU build path going forward — it replaces the older `intel/vllm:0.17.0-xpu` we use today. The persistent zero-gap MoE GEMM kernel (2 SYCL groups per Battlemage XeCore) is documented at 80%+ HW efficiency and reports **2.6× end-to-end on Qwen3-30B-A3B** vs the legacy XPU path. B70-specific perf numbers are not yet published; benchmark on actual B70 before claiming the same 2.6×.
+
+When we move the vLLM tier off `intel/vllm:0.17.0-xpu`, `llm-scaler` is the destination. It also enables MoE configurations we currently can't run — e.g., MiniMax M2.7 AutoRound INT4 with the unsigned u4 ESIMD decode path.
