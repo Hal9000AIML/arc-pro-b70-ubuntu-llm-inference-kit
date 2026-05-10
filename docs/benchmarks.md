@@ -96,9 +96,26 @@ The lesson: SYCL + SYCL on one card is catastrophic. SYCL + Vulkan on one card i
 
 ## Future vLLM tier: intel/llm-scaler v0.14.0-b8.2
 
-Intel's [`llm-scaler`](https://github.com/intel/llm-scaler) added official **B70 support in `vllm-0.14.0-b8.2` (2026-04-22)**. This is the canonical vLLM XPU build path going forward — it replaces the older `intel/vllm:0.17.0-xpu` we use today. The persistent zero-gap MoE GEMM kernel (2 SYCL groups per Battlemage XeCore) is documented at 80%+ HW efficiency and reports **2.6× end-to-end on Qwen3-30B-A3B** vs the legacy XPU path. B70-specific perf numbers are not yet published; benchmark on actual B70 before claiming the same 2.6×.
+Intel's [`llm-scaler`](https://github.com/intel/llm-scaler) added official **B70 support in `vllm-0.14.0-b8.2` (2026-04-22)** and a follow-up patch release **`vllm-0.14.0-b8.2.1` (2026-05-06)**. This is the canonical vLLM XPU build path going forward — it replaces the older `intel/vllm:0.17.0-xpu`. The persistent zero-gap MoE GEMM kernel (2 SYCL groups per Battlemage XeCore) is documented at 80%+ HW efficiency and reports **2.6× end-to-end on Qwen3-30B-A3B** vs the legacy XPU path.
 
-When we move the vLLM tier off `intel/vllm:0.17.0-xpu`, `llm-scaler` is the destination. It also enables MoE configurations we currently can't run — e.g., MiniMax M2.7 AutoRound INT4 with the unsigned u4 ESIMD decode path.
+**TP=1 single-stream measured on our B70**, 2026-05-10, Qwen3-Coder-30B-A3B-GPTQ, same Fibonacci prompt, `gpu-memory-utilization=0.95 max-model-len=8192 max-num-seqs=4 enforce-eager block-size=64 dtype=float16 --allow-deprecated-quantization`:
+
+| Stack | Run 1 | Run 2 | Run 3 | Avg tg |
+|---|---|---|---|---|
+| llama.cpp SYCL (production `pr21920-22035`) | 59.90 | 59.91 | 59.06 | **59.6 tok/s** |
+| vLLM `intel/vllm:0.17.0-xpu` (legacy) | 13.85 | 13.84 | 13.85 | **13.85 tok/s** |
+| vLLM `intel/llm-scaler-vllm:0.14.0-b8.2.1` | 16.54 | 16.47 | 16.44 | **16.48 tok/s** |
+
+`llm-scaler-vllm:0.14.0-b8.2.1` is **+19% faster than the legacy `intel/vllm:0.17.0-xpu`** at TP=1 single-stream, but still **3.6× slower than llama.cpp** for the same workload. This matches the documented expectation that vLLM's TP=1 path is its weakest case on B70 — its real wins are TP-sharded multi-card serving and high-concurrency batch throughput, neither of which we exercise in this kit's bench.
+
+**Verdict:** if/when we need batch-serving / concurrent-request throughput (e.g., a public API tier), `llm-scaler-vllm:0.14.0-b8.2.1` is the right replacement for `intel/vllm:0.17.0-xpu`. For the kit's single-stream tiers, llama.cpp stays the production engine. Container preserved as a pulled image; do not run alongside our llama services on the same GPU (15.77 GiB model weights + KV cache leaves no room for cohabitation on a 16 GB B70).
+
+**Setup gotchas observed:**
+- New vLLM rejects `quantization=ipex` autodetect by default; must pass `--allow-deprecated-quantization` for legacy GPTQ paths until the Marlin-XPU port lands.
+- `gpu-memory-utilization=0.80` (the legacy default) crashes at KV-cache allocation on a 16 GB B70 with 15.77 GiB weights. Use `0.95` and reduce `max-model-len` if you still OOM.
+- Launch via `docker exec -d <container> bash -c '... vllm serve ...'` (not the image's CMD). Engine warmup takes ~7 minutes from container start to `/v1/models` ready, including Flash-Attention init and KV profiling.
+
+It also enables MoE configurations we currently can't run — e.g., MiniMax M2.7 AutoRound INT4 with the unsigned u4 ESIMD decode path — and that, plus batch-serving throughput, are the actual reasons to keep `llm-scaler` on standby.
 
 ## Negative result: llama.cpp master (b8824) on Qwen3.6-35B-A3B Q4_K_M
 
